@@ -12,6 +12,7 @@ import {
   computeAccessibleName,
   getRole,
   isDisabled,
+  isInaccessible,
   isSubtreeInaccessible,
 } from "./vendor/dom-accessibility-api.mjs"
 
@@ -69,11 +70,17 @@ function soundsLike(doc) {
   }
 
   const walk = (node) => {
-    if (node.nodeType === Node.TEXT_NODE) return text.push(node.textContent)
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (getComputedStyle(node.parentElement).visibility !== "visible") return
+      return text.push(node.textContent)
+    }
     if (node.nodeType !== Node.ELEMENT_NODE) return
     const el = node
     if (["SCRIPT", "STYLE", "TEMPLATE"].includes(el.tagName)) return
     if (isSubtreeInaccessible(el)) return
+    // visibility: hidden (a closed daisyUI modal, say) hides the element but a child
+    // can opt back in with visibility: visible, so keep walking.
+    if (isInaccessible(el)) return el.childNodes.forEach(walk)
 
     const role = getRole(el)
 
@@ -156,7 +163,8 @@ function focusOrder(doc) {
     const name = computeAccessibleName(el)
     const problems = []
     const twins = counts[`${getRole(el)}|${name}`]
-    if (name && twins > 1) problems.push(`${twins} ${role}s share this name, so they can't be told apart out of context`)
+    const plural = /(x|s)$/.test(role) ? `${role}es` : `${role}s`
+    if (name && twins > 1) problems.push(`${twins} ${plural} share this name, so they can't be told apart out of context`)
 
     const before = focusStyle(el)
     el.focus({ focusVisible: true, preventScroll: true })
