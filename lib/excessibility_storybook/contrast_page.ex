@@ -48,7 +48,7 @@ defmodule ExcessibilityStorybook.ContrastPage do
     ~H"""
     <div class="xsb-contrast">
       <style>
-        .xsb-contrast { font-family: system-ui, sans-serif; line-height: 1.4; }
+        .xsb-contrast { font-family: system-ui, sans-serif; line-height: 1.4; color: #1d1d1f; background: #fff; color-scheme: light; }
         .xsb-contrast table { border-collapse: collapse; margin-block: 1rem 2rem; }
         .xsb-contrast th, .xsb-contrast td { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; }
         .xsb-contrast caption { text-align: left; font-weight: 600; padding-block: .5rem; }
