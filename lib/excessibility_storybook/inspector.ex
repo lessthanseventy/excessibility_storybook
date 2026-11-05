@@ -230,7 +230,7 @@ defmodule ExcessibilityStorybook.Inspector do
       story: story,
       ids: ids,
       variation: variation,
-      srcdoc: srcdoc(socket.assigns.backend, mod, variation)
+      srcdoc: srcdoc(socket.assigns.backend, socket.assigns.storybook_path, mod, variation)
     )
   end
 
@@ -238,7 +238,7 @@ defmodule ExcessibilityStorybook.Inspector do
   # LiveView connection), which was most of the wait on every change. The cost: the
   # component is static, so JS hooks don't run. Anything that can't render without a
   # socket returns nil and falls back to the iframe page.
-  defp srcdoc(backend, mod, variation_id) do
+  defp srcdoc(backend, storybook_path, mod, variation_id) do
     variation = Enum.find(mod.variations(), &(to_string(&1.id) == variation_id))
 
     html =
@@ -247,15 +247,18 @@ defmodule ExcessibilityStorybook.Inspector do
       |> PhoenixStorybook.Rendering.ComponentRenderer.render()
       |> to_iodata()
 
+    # The same head and body storybook's own iframe page uses, so components look alike.
     css = backend.config(:css_path, nil)
-    sandbox = backend.config(:sandbox_class, nil)
+    theme = backend.config(:theme_path, nil)
 
     IO.iodata_to_binary([
       ~s(<!doctype html><html lang="en"><head><meta charset="utf-8">),
-      if(css, do: ~s(<link rel="stylesheet" href="#{css}">), else: ""),
-      ~s(</head><body><div class="psb-sandbox #{sandbox}">),
+      ~s(<link rel="stylesheet" href="#{storybook_path}/assets/css/phoenix_storybook.css">),
+      if(css, do: ~s(<style>@import "#{css}" layer(app\);</style>), else: ""),
+      if(theme, do: ~s(<style>@import "#{theme}";</style>), else: ""),
+      ~s(</head><body class="psb-sandbox #{backend.config(:sandbox_class, nil)}" style="margin: 0;">),
       html,
-      "</div></body></html>"
+      "</body></html>"
     ])
   rescue
     _ -> nil
