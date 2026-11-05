@@ -84,37 +84,37 @@ defmodule ExcessibilityStorybook.Inspector do
 
   def mount(_params, _session, socket, opts) do
     backend = Keyword.fetch!(opts, :backend)
-    stories = stories(backend)
-    {path, _mod, [first | _]} = hd(stories)
+    [story | _] = stories = stories(backend)
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
+       backend: backend,
        storybook_path: Keyword.get(opts, :storybook_path, "/storybook"),
        stories: stories,
-       story: path,
-       variation: first,
        view: :sounds
-     )}
+     )
+     |> select(story, nil)}
   end
 
   def handle_event("select", %{"story" => story} = params, socket) do
-    {^story, _mod, ids} = List.keyfind(socket.assigns.stories, story, 0)
-    variation = if params["variation"] in ids, do: params["variation"], else: hd(ids)
-    {:noreply, assign(socket, story: story, variation: variation)}
+    true = story in socket.assigns.stories
+    {:noreply, select(socket, story, params["variation"])}
   end
 
   def handle_event("view", %{"view" => view}, socket) do
     {:noreply, assign(socket, view: String.to_existing_atom(view))}
   end
 
-  # [{"/core_components/button", module, ["default", "primary", ...]}]
+  # In dev, storybook recompiles a story file on every load_story/1 call (50-350ms
+  # each), so only the selected story is loaded; the list comes from the sources.
   defp stories(backend) do
+    content_path = backend.config(:content_path, nil)
+
     for entry <- backend.leaves(),
-        {:ok, mod} <- [backend.load_story(entry.path)],
-        mod.storybook_type() in [:component, :live_component],
-        ids = Enum.map(mod.variations(), &to_string(&1.id)),
-        ids != [] do
-      {entry.path, mod, ids}
+        source = File.read!(Path.join(content_path, entry.path <> ".story.exs")),
+        source =~ ~r/use PhoenixStorybook\.Story,\s*:(live_)?component\b/ do
+      entry.path
     end
   end
 
@@ -124,7 +124,6 @@ defmodule ExcessibilityStorybook.Inspector do
         views: @views,
         stress: @stress,
         cvd: @cvd,
-        ids: assigns.stories |> List.keyfind(assigns.story, 0) |> elem(2),
         src: "#{assigns.storybook_path}/iframe#{assigns.story}?variation_id=#{assigns.variation}"
       )
 
@@ -159,7 +158,7 @@ defmodule ExcessibilityStorybook.Inspector do
         <label>
           Component
           <select name="story">
-            {Phoenix.HTML.Form.options_for_select(Enum.map(@stories, &elem(&1, 0)), @story)}
+            {Phoenix.HTML.Form.options_for_select(@stories, @story)}
           </select>
         </label>
         <label>
@@ -188,15 +187,15 @@ defmodule ExcessibilityStorybook.Inspector do
           phx-hook="XsbFrame"
           data-mode={@view}
           data-output={"xsb-out-#{@view}"}
+          data-status={"xsb-status-#{@view}"}
           src={@src}
           title={"#{@story} #{@variation}"}
         >
         </iframe>
         <section>
           <h2>{if @view == :sounds, do: "What a screen reader hears", else: "Tab order"}</h2>
-          <div id={"xsb-out-#{@view}-#{@story}-#{@variation}"} phx-update="ignore">
-            <div id={"xsb-out-#{@view}"} aria-live="polite"></div>
-          </div>
+          <p id={"xsb-status-#{@view}"} role="status"></p>
+          <div id={"xsb-out-#{@view}"} phx-update="ignore"></div>
         </section>
       </div>
 
@@ -213,12 +212,17 @@ defmodule ExcessibilityStorybook.Inspector do
             style={"#{s.width && "width: #{s.width}px;"} #{s.filter && "filter: #{s.filter};"}"}
           >
           </iframe>
-          <div id={"xsb-wrap-#{s.id}-#{@story}-#{@variation}"} phx-update="ignore">
-            <div id={"xsb-out-#{s.id}"} aria-live="polite"></div>
-          </div>
+          <div id={"xsb-out-#{s.id}"} phx-update="ignore"></div>
         </figure>
       </div>
     </div>
     """
+  end
+
+  defp select(socket, story, variation) do
+    {:ok, mod} = socket.assigns.backend.load_story(story)
+    ids = Enum.map(mod.variations(), &to_string(&1.id))
+    variation = if variation in ids, do: variation, else: hd(ids)
+    assign(socket, story: story, ids: ids, variation: variation)
   end
 end

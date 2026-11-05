@@ -252,7 +252,7 @@ function render(out, lines) {
 
 const XsbFrame = {
   mounted() {
-    this.onLoad = () => setTimeout(() => this.run(), 250)
+    this.onLoad = () => this.run()
     this.el.addEventListener("load", this.onLoad)
     if (this.el.contentDocument?.readyState === "complete") this.onLoad()
   },
@@ -264,12 +264,22 @@ const XsbFrame = {
     if (!doc?.body) return
     const mode = this.el.dataset.mode
     const out = document.getElementById(this.el.dataset.output)
-    const lines =
+    let lines =
       mode === "sounds" ? soundsLike(doc) : mode === "focus" ? focusOrder(doc) : stress(doc, mode, this.el)
     if (mode === "sounds" || mode === "focus") {
       this.el.style.height = `${Math.min(doc.documentElement.scrollHeight + 24, 800)}px`
+      if (lines.length === 0) {
+        lines = [{ text: mode === "focus" ? "Nothing here can be reached with Tab." : "Nothing to read." }]
+      }
     }
     if (out) render(out, lines)
+
+    // A short summary, not the whole list, so a screen reader isn't made to re-read it.
+    const status = document.getElementById(this.el.dataset.status)
+    if (status) {
+      const problems = lines.filter((l) => l.problem).length
+      status.textContent = `${lines.length} ${lines.length === 1 ? "line" : "lines"}, ${problems} ${problems === 1 ? "problem" : "problems"}.`
+    }
   },
 }
 
