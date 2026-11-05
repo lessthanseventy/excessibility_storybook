@@ -188,7 +188,8 @@ defmodule ExcessibilityStorybook.Inspector do
           data-mode={@view}
           data-output={"xsb-out-#{@view}"}
           data-status={"xsb-status-#{@view}"}
-          src={@src}
+          srcdoc={@srcdoc}
+          src={!@srcdoc && @src}
           title={"#{@story} #{@variation}"}
         >
         </iframe>
@@ -207,7 +208,8 @@ defmodule ExcessibilityStorybook.Inspector do
             phx-hook="XsbFrame"
             data-mode={if s.id in ["reflow", "text-200", "text-spacing"], do: s.id, else: "plain"}
             data-output={"xsb-out-#{s.id}"}
-            src={@src}
+            srcdoc={@srcdoc}
+            src={!@srcdoc && @src}
             title={"#{s.label}: #{@story} #{@variation}"}
             style={"#{s.width && "width: #{s.width}px;"} #{s.filter && "filter: #{s.filter};"}"}
           >
@@ -223,6 +225,44 @@ defmodule ExcessibilityStorybook.Inspector do
     {:ok, mod} = socket.assigns.backend.load_story(story)
     ids = Enum.map(mod.variations(), &to_string(&1.id))
     variation = if variation in ids, do: variation, else: hd(ids)
-    assign(socket, story: story, ids: ids, variation: variation)
+
+    assign(socket,
+      story: story,
+      ids: ids,
+      variation: variation,
+      srcdoc: srcdoc(socket.assigns.backend, mod, variation)
+    )
   end
+
+  # Rendering the variation here skips storybook's iframe page (its JS bundle and a
+  # LiveView connection), which was most of the wait on every change. The cost: the
+  # component is static, so JS hooks don't run. Anything that can't render without a
+  # socket returns nil and falls back to the iframe page.
+  defp srcdoc(backend, mod, variation_id) do
+    variation = Enum.find(mod.variations(), &(to_string(&1.id) == variation_id))
+
+    html =
+      backend
+      |> PhoenixStorybook.Rendering.RenderingContext.build(mod, variation, %{})
+      |> PhoenixStorybook.Rendering.ComponentRenderer.render()
+      |> to_iodata()
+
+    css = backend.config(:css_path, nil)
+    sandbox = backend.config(:sandbox_class, nil)
+
+    IO.iodata_to_binary([
+      ~s(<!doctype html><html lang="en"><head><meta charset="utf-8">),
+      if(css, do: ~s(<link rel="stylesheet" href="#{css}">), else: ""),
+      ~s(</head><body><div class="psb-sandbox #{sandbox}">),
+      html,
+      "</div></body></html>"
+    ])
+  rescue
+    _ -> nil
+  end
+
+  defp to_iodata(%Phoenix.LiveView.Rendered{} = rendered),
+    do: Phoenix.HTML.Safe.to_iodata(rendered)
+
+  defp to_iodata(iodata), do: iodata
 end

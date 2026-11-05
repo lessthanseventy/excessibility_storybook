@@ -21,7 +21,8 @@ defmodule ExcessibilityStorybook.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:phoenix_live_view, "~> 1.1"}
+      {:phoenix_live_view, "~> 1.1"},
+      {:phoenix_storybook, "~> 1.0"}
     ]
   end
 end
