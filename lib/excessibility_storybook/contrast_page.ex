@@ -48,14 +48,15 @@ defmodule ExcessibilityStorybook.ContrastPage do
     ~H"""
     <div class="xsb-contrast">
       <style>
-        .xsb-contrast { font-family: system-ui, sans-serif; line-height: 1.4; color: #1d1d1f; background: #fff; color-scheme: light; }
+        .xsb-contrast { font-family: Inter, ui-sans-serif, system-ui, sans-serif; line-height: 1.4; color: #1d1d1f; background: #fff; color-scheme: light; }
         .xsb-contrast table { border-collapse: collapse; margin-block: 1rem 2rem; }
         .xsb-contrast th, .xsb-contrast td { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; }
         .xsb-contrast caption { text-align: left; font-weight: 600; padding-block: .5rem; }
         .xsb-swatch { padding: .5rem .75rem; border-radius: .25rem; white-space: nowrap; }
         .xsb-swatch .xsb-big { font-size: 24px; font-weight: 700; }
         .xsb-matrix td { min-width: 7rem; font-size: .8rem; }
-        .xsb-fail { font-weight: 600; }
+        .xsb-fail { font-weight: 600; color: #b00020; }
+        .xsb-pass { color: #116329; }
       </style>
 
       <p>
@@ -140,7 +141,7 @@ defmodule ExcessibilityStorybook.ContrastPage do
 
   defp verdict(assigns) do
     ~H"""
-    <span class={!@ok && "xsb-fail"}>{if @ok, do: "passes", else: "fails"} {@label}</span>
+    <span class={if @ok, do: "xsb-pass", else: "xsb-fail"}>{if @ok, do: "passes", else: "fails"} {@label}</span>
     """
   end
 

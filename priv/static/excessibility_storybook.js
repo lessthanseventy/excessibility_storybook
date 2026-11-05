@@ -235,7 +235,7 @@ function stress(doc, mode, frame) {
     lines.push({ text: `Clipped: ${el.tagName.toLowerCase()} "${what}"`, problem: "content cut off" })
   }
 
-  if (lines.length === 0 && mode !== "plain") lines.push({ text: "Nothing clipped or scrolling sideways." })
+  if (lines.length === 0) lines.push({ text: "Nothing clipped or scrolling sideways.", ok: true })
   frame.style.height = `${Math.min(root.scrollHeight + 4, 800)}px`
   return lines
 }
@@ -244,9 +244,10 @@ function render(out, lines) {
   out.replaceChildren()
   if (lines.length === 0) return
   const list = out.ownerDocument.createElement("ol")
-  for (const { text, problem } of lines) {
+  for (const { text, problem, ok } of lines) {
     const li = out.ownerDocument.createElement("li")
     li.textContent = text
+    if (ok) li.className = "xsb-ok"
     if (problem) {
       const p = out.ownerDocument.createElement("strong")
       p.textContent = ` Problem: ${problem}`
@@ -286,6 +287,7 @@ const XsbFrame = {
     const status = document.getElementById(this.el.dataset.status)
     if (status) {
       const problems = lines.filter((l) => l.problem).length
+      status.dataset.problems = problems
       status.textContent = `${lines.length} ${lines.length === 1 ? "line" : "lines"}, ${problems} ${problems === 1 ? "problem" : "problems"}.`
     }
   },

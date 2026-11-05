@@ -12,8 +12,9 @@ defmodule ExcessibilityStorybook.Inspector do
         use ExcessibilityStorybook.Inspector, backend: MyAppWeb.Storybook
       end
 
-  Needs the `XsbFrame` hook from `priv/static/excessibility_storybook.js`
-  registered in the storybook's JS. "Sounds like" is computed from the DOM with
+  Pass `storybook_path:` if the storybook isn't mounted at `/storybook`. Needs the
+  `XsbFrame` hook from `priv/static/excessibility_storybook.js` registered in the
+  storybook's JS. "Sounds like" is computed from the DOM with
   dom-accessibility-api; it approximates a screen reader, it isn't one.
   """
 
@@ -130,7 +131,7 @@ defmodule ExcessibilityStorybook.Inspector do
     ~H"""
     <div class="xsb-inspector">
       <style>
-        .xsb-inspector { font-family: system-ui, sans-serif; line-height: 1.4; color: #1d1d1f; background: #fff; color-scheme: light; }
+        .xsb-inspector { font-family: Inter, ui-sans-serif, system-ui, sans-serif; line-height: 1.4; color: #1d1d1f; background: #fff; color-scheme: light; }
         .xsb-inspector form { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
         .xsb-inspector label { display: flex; flex-direction: column; font-weight: 600; gap: .25rem; }
         .xsb-inspector select { font: inherit; padding: .3rem; border: 1px solid #767676; border-radius: .25rem; }
@@ -145,6 +146,8 @@ defmodule ExcessibilityStorybook.Inspector do
         .xsb-grid figcaption { font-weight: 600; margin-bottom: .25rem; }
         .xsb-inspector ol { padding-left: 1.5rem; margin: .25rem 0; }
         .xsb-problem strong { color: #b00020; }
+        .xsb-ok, .xsb-inspector [data-problems="0"] { color: #116329; font-weight: 600; }
+        .xsb-inspector [role=status]:not([data-problems="0"]) { color: #b00020; font-weight: 600; }
       </style>
       <svg aria-hidden="true" width="0" height="0" style="position: absolute">
         <defs>
