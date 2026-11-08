@@ -17,8 +17,8 @@ Every result is written out in words; nothing depends on reading a color swatch.
 
 This is for looking at your components while you build them. It is not a CI gate and not a
 verdict: automated checks catch a slice of real accessibility problems, and passing them says
-little about whether something is usable. For snapshot-based Pa11y/axe checks in your test
-suite, see [Excessibility](https://github.com/lessthanseventy/excessibility).
+little about whether something is usable. For axe-core checks on the HTML snapshots your test
+suite takes, see [Excessibility](https://github.com/lessthanseventy/excessibility).
 
 ## What it looks like
 
@@ -103,7 +103,9 @@ text on every `base-*`.
   differ from it and from each other.
 - **Components are static.** The Inspector renders each variation with storybook's renderer
   straight into the frame (fast, no LiveView connection per frame), so JS hooks don't run. A state
-  that only JS reaches, like an opened modal, needs its own variation.
+  that only JS reaches, like an opened modal, needs its own variation. A variation the static
+  render cannot produce falls back to storybook's own iframe page, and the reason is logged at
+  debug level.
 - **"No visible change on focus" is a heuristic.** It compares computed styles before and after
   focus.
 - **The color-vision and blur frames are for looking at.** They report the same clipping as the
