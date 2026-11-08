@@ -89,7 +89,7 @@ If your storybook isn't mounted at `/storybook`, pass `storybook_path: "/your/pa
 
 The Contrast page reads `--color-*` custom properties from the stylesheet, one tab per block that
 declares them: a daisyUI theme (named by its `name:`), `:root`, `[data-theme=...]`, `@theme`.
-Colors can be hex, `rgb()` or `oklch()`, and `var(--x)` is followed through any custom property in
+Colors can be hex, `rgb()`, `hsl()` or `oklch()`, and `var(--x)` is followed through any custom property in
 the file. Anything it can't resolve to a color (`color-mix()`, say) is listed as not measured,
 never silently dropped.
 
