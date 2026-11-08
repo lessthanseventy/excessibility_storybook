@@ -25,7 +25,23 @@ defmodule ExcessibilityStorybook.ContrastPage do
   @doc "Renders the contrast matrix for the selected theme tab."
   @spec render(map(), Path.t()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns, css_path) do
-    themes = Tokens.read!(css_path)
+    case Tokens.read!(css_path) do
+      [] -> render_empty(assign(assigns, css_path: css_path))
+      themes -> render_matrix(assigns, css_path, themes)
+    end
+  end
+
+  defp render_empty(assigns) do
+    ~H"""
+    <div class="xsb-contrast">
+      <p>
+        No <code>--color-*</code> tokens found in <code>{@css_path}</code>, so there is nothing to measure.
+      </p>
+    </div>
+    """
+  end
+
+  defp render_matrix(assigns, css_path, themes) do
     tab = to_string(assigns[:tab] || hd(themes).name)
     theme = Enum.find(themes, hd(themes), &(&1.name == tab))
     by_name = Map.new(theme.tokens, &{&1.name, &1})

@@ -34,8 +34,10 @@ defmodule ExcessibilityStorybook.ContrastPageTest do
     assert out =~ "--color-haze: color-mix(in oklab, red, blue)"
   end
 
-  # the empty state belongs to contrast_page.ex; this documents current behaviour
-  test "a stylesheet with no color tokens raises", %{tmp_dir: dir} do
-    assert_raise ArgumentError, fn -> html(%{}, dir, ".btn { color: red; }") end
+  test "a stylesheet with no color tokens says so", %{tmp_dir: dir} do
+    out = html(%{}, dir, ".btn { color: red; }")
+
+    assert out =~ "No <code>--color-*</code> tokens found"
+    assert out =~ "app.css"
   end
 end
