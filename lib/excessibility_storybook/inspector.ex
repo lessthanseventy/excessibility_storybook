@@ -20,6 +20,8 @@ defmodule ExcessibilityStorybook.Inspector do
 
   use Phoenix.Component
 
+  require Logger
+
   defmacro __using__(opts) do
     quote do
       @xsb_opts unquote(opts)
@@ -268,7 +270,12 @@ defmodule ExcessibilityStorybook.Inspector do
       "</body></html>"
     ])
   rescue
-    _ -> nil
+    e ->
+      Logger.debug(
+        "excessibility_storybook: static render of #{inspect(mod)}/#{variation_id} failed, using the iframe page: #{Exception.message(e)}"
+      )
+
+      nil
   end
 
   defp to_iodata(%Phoenix.LiveView.Rendered{} = rendered),
