@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>XsbFrame harness</title></head>
+<body>
+<pre id="out">running…</pre>
+<div id="frames"></div>
+<script type="module">
+import { Hooks } from "../../priv/static/excessibility_storybook.js"
+
+const CASES = [
+  {
+    name: "sr-only text is not clipping",
+    mode: "plain",
+    html: `<style>.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}</style>
+           <button>Save <span class="sr-only">the current document</span></button>`,
+    expect: (lines) => lines.every((l) => !l.problem),
+  },
+  {
+    name: "ellipsis truncation is not clipping",
+    mode: "plain",
+    html: `<p style="width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A very long title that will not fit</p>`,
+    expect: (lines) => lines.every((l) => !l.problem),
+  },
+  {
+    name: "real clipping is still reported",
+    mode: "plain",
+    html: `<div style="width:80px;height:20px;overflow:hidden"><p style="width:300px;margin:0">Cut off text here</p></div>`,
+    expect: (lines) => lines.some((l) => l.problem === "content cut off"),
+  },
+  {
+    name: "focus ring behind a transition still counts as visible",
+    mode: "focus",
+    html: `<style>button{transition:outline-color 300ms, box-shadow 300ms;outline:2px solid transparent}
+           button:focus{outline-color:blue;box-shadow:0 0 0 3px rgba(0,0,255,.5)}</style><button>Go</button>`,
+    expect: (lines) => lines.length === 1 && !/no visible change/.test(lines[0].problem || ""),
+  },
+  {
+    name: "no focus style at all is still reported",
+    mode: "focus",
+    html: `<style>button{outline:none}</style><button>Go</button>`,
+    expect: (lines) => /no visible change on focus/.test(lines[0]?.problem || ""),
+  },
+  {
+    name: "bare section and form are not landmarks; named ones are",
+    mode: "sounds",
+    html: `<section><p>a</p></section><form><p>b</p></form>
+           <section aria-label="News"><p>c</p></section>`,
+    expect: (lines) => {
+      const t = lines.map((l) => l.text)
+      return t.filter((x) => x.startsWith("region")).length === 1 && !t.some((x) => x.startsWith("form"))
+    },
+  },
+  {
+    name: "header inside main is not a banner",
+    mode: "sounds",
+    html: `<main><header><p>inner</p></header></main><header><p>outer</p></header>`,
+    expect: (lines) => lines.filter((l) => l.text.startsWith("banner")).length === 1,
+  },
+  {
+    name: "aria-pressed=mixed is partially pressed",
+    mode: "sounds",
+    html: `<button aria-pressed="mixed">Bold</button>`,
+    expect: (lines) => lines.some((l) => /partially pressed/.test(l.text)),
+  },
+  {
+    name: "controls in a disabled fieldset are not tab stops",
+    mode: "focus",
+    html: `<fieldset disabled><button>Inside</button></fieldset><button>Outside</button>`,
+    expect: (lines) => lines.length === 1 && /Outside/.test(lines[0].text),
+  },
+  {
+    name: "a radio group is one tab stop",
+    mode: "focus",
+    html: `<label><input type="radio" name="s" value="a" checked>A</label><label><input type="radio" name="s" value="b">B</label>`,
+    expect: (lines) => lines.length === 1 && !lines[0].problem,
+  },
+  {
+    name: "a nameless scroller with tabindex=0 is not a missing name",
+    mode: "focus",
+    html: `<div tabindex="0" style="overflow:auto;height:40px"><p>scrollable</p></div>`,
+    expect: (lines) => lines.length === 1 && !/no accessible name/.test(lines[0].problem || ""),
+  },
+  {
+    name: "a nameless button is still a missing name",
+    mode: "focus",
+    html: `<button><svg width="10" height="10"></svg></button>`,
+    expect: (lines) => /no accessible name/.test(lines[0]?.problem || ""),
+  },
+  {
+    name: "wide non-table content beside a table is still horizontal scrolling",
+    mode: "reflow",
+    width: 320,
+    html: `<table style="width:400px"><tr><td>x</td></tr></table><div style="width:600px">wide</div>`,
+    expect: (lines) => lines.some((l) => l.problem === "horizontal scrolling"),
+  },
+  {
+    name: "a wide data table alone is exempt",
+    mode: "reflow",
+    width: 320,
+    html: `<table style="width:400px"><tr><td>x</td></tr></table>`,
+    expect: (lines) => lines.every((l) => l.problem !== "horizontal scrolling"),
+  },
+  {
+    name: "closed details content is not read",
+    mode: "sounds",
+    html: `<details><summary>More</summary><p>secret</p></details>`,
+    expect: (lines) => !lines.some((l) => /secret/.test(l.text)) && lines.some((l) => /^More, button/.test(l.text)),
+  },
+]
+
+const frames = document.getElementById("frames")
+const results = []
+
+function runCase(c, i) {
+  return new Promise((resolve) => {
+    const out = document.createElement("div")
+    out.id = `out-${i}`
+    const status = document.createElement("div")
+    status.id = `status-${i}`
+    const iframe = document.createElement("iframe")
+    iframe.dataset.mode = c.mode
+    iframe.dataset.output = out.id
+    iframe.dataset.status = status.id
+    iframe.style.width = `${c.width || 800}px`
+    iframe.style.height = "200px"
+    iframe.srcdoc = `<!doctype html><html><head><meta charset="utf-8"></head><body>${c.html}</body></html>`
+    frames.append(iframe, out, status)
+    const hook = { el: iframe, run: Hooks.XsbFrame.run }
+    iframe.addEventListener("load", () => {
+      hook.run()
+      const lines = [...out.querySelectorAll("li")].map((li) => {
+        const strong = li.querySelector("strong")
+        const problem = strong ? strong.textContent.replace(/^\s*Problem:\s*/, "") : null
+        const text = strong ? li.textContent.slice(0, li.textContent.length - strong.textContent.length) : li.textContent
+        return { text: text.trim(), problem }
+      })
+      let pass = false
+      try { pass = !!c.expect(lines) } catch (e) { pass = false }
+      results.push(`${pass ? "PASS" : "FAIL"} ${c.name}\n    ${JSON.stringify(lines)}`)
+      resolve()
+    })
+  })
+}
+
+for (const [i, c] of CASES.entries()) await runCase(c, i)
+const fails = results.filter((r) => r.startsWith("FAIL")).length
+document.getElementById("out").textContent = `${CASES.length - fails}/${CASES.length} passed\n` + results.join("\n")
+document.getElementById("out").dataset.done = "1"
+</script>
+</body>
+</html>

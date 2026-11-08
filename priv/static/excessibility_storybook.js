@@ -43,7 +43,10 @@ function states(el, role) {
     out.push(checked === "true" ? "checked" : checked === "mixed" ? "half checked" : "not checked")
   }
   if (aria("aria-expanded")) out.push(aria("aria-expanded") === "true" ? "expanded" : "collapsed")
-  if (aria("aria-pressed")) out.push(aria("aria-pressed") === "true" ? "pressed" : "not pressed")
+  if (aria("aria-pressed")) {
+    const pressed = aria("aria-pressed")
+    out.push(pressed === "true" ? "pressed" : pressed === "mixed" ? "partially pressed" : "not pressed")
+  }
   if (aria("aria-selected") === "true") out.push("selected")
   if (aria("aria-current") && aria("aria-current") !== "false") out.push("current")
   if (el.required || aria("aria-required") === "true") out.push("required")
@@ -59,6 +62,18 @@ function headingLevel(el) {
   return el.getAttribute("aria-level") || (/^H([1-6])$/.exec(el.tagName) || [])[1] || "2"
 }
 
+// HTML-AAM gives section/form a landmark role only when named, and header/footer
+// only outside sectioning content; dom-accessibility-api assigns them unconditionally.
+function landmarkRole(el, role) {
+  if (el.hasAttribute("role")) return role
+  const tag = el.tagName
+  if ((tag === "SECTION" || tag === "FORM") && !computeAccessibleName(el)) return null
+  if ((tag === "HEADER" || tag === "FOOTER") && el.parentElement?.closest("article, aside, main, nav, section")) {
+    return null
+  }
+  return role
+}
+
 // Linearize the document roughly the way a screen reader's browse mode reads it.
 function soundsLike(doc) {
   const lines = []
@@ -69,20 +84,25 @@ function soundsLike(doc) {
     text = []
   }
 
+  const win = doc.defaultView
   const walk = (node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      if (getComputedStyle(node.parentElement).visibility !== "visible") return
+      if (win.getComputedStyle(node.parentElement).visibility !== "visible") return
       return text.push(node.textContent)
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return
     const el = node
     if (["SCRIPT", "STYLE", "TEMPLATE"].includes(el.tagName)) return
-    if (isSubtreeInaccessible(el)) return
+    if (isSubtreeInaccessible(el) || el.inert) return
+    if (el.tagName === "DETAILS" && !el.open) {
+      const summary = el.querySelector(":scope > summary")
+      return summary && walk(summary)
+    }
     // visibility: hidden (a closed daisyUI modal, say) hides the element but a child
     // can opt back in with visibility: visible, so keep walking.
     if (isInaccessible(el)) return el.childNodes.forEach(walk)
 
-    const role = getRole(el)
+    const role = landmarkRole(el, getRole(el))
 
     if (LEAF_ROLES.has(role)) {
       flushText()
@@ -119,7 +139,7 @@ function soundsLike(doc) {
     }
 
     el.childNodes.forEach(walk)
-    if (getComputedStyle(el).display !== "inline") flushText()
+    if (win.getComputedStyle(el).display !== "inline") flushText()
   }
 
   walk(doc.body)
@@ -128,17 +148,27 @@ function soundsLike(doc) {
 }
 
 const FOCUSABLE =
-  'a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable=""], [contenteditable="true"]'
+  'a[href], area[href], button, input, select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'
+
+// Tab lands on one radio per group: the checked one, else the first.
+function radioGroupRepresentative(el, doc) {
+  if (el.type !== "radio" || !el.name) return true
+  const group = [...doc.querySelectorAll(`input[type=radio][name="${CSS.escape(el.name)}"]`)]
+  const checked = group.find((r) => r.checked)
+  return (checked || group[0]) === el
+}
 
 function tabOrder(doc) {
   const win = doc.defaultView
   const els = [...doc.querySelectorAll(FOCUSABLE)].filter(
     (el) =>
       el.tabIndex >= 0 &&
-      !el.disabled &&
+      !el.matches(":disabled") &&
+      !el.closest("[inert]") &&
       el.getClientRects().length > 0 &&
       win.getComputedStyle(el).visibility !== "hidden" &&
-      !(el.type === "hidden"),
+      !(el.type === "hidden") &&
+      radioGroupRepresentative(el, doc),
   )
   const positive = els.filter((el) => el.tabIndex > 0).sort((a, b) => a.tabIndex - b.tabIndex)
   return [...positive, ...els.filter((el) => el.tabIndex === 0)]
@@ -174,7 +204,7 @@ function focusOrder(doc) {
     if (!visible) problems.push("no visible change on focus")
     if (el.tabIndex > 0) problems.push(`tabindex=${el.tabIndex} jumps the natural order`)
     if (el.closest("[aria-hidden=true]")) problems.push("focusable but hidden from screen readers")
-    if (!name) problems.push("no accessible name")
+    if (!name && NAME_REQUIRED.has(getRole(el))) problems.push("no accessible name")
 
     const r = el.getBoundingClientRect()
     const win = doc.defaultView
@@ -210,10 +240,13 @@ function stress(doc, mode, frame) {
 
   const root = doc.documentElement
   const lines = []
-  // Sideways scroll only fails reflow (WCAG 1.4.10), and data tables are exempt from it.
+  // Sideways scroll only fails reflow (WCAG 1.4.10), and data tables are exempt from
+  // it; the exemption holds only when a table is what reaches the overflow edge.
   if (mode === "reflow" && root.scrollWidth > root.clientWidth + 1) {
+    const rightEdge = (el) => el.getBoundingClientRect().right + doc.defaultView.scrollX
+    const widest = Math.max(...[...doc.body.querySelectorAll("*")].map(rightEdge))
     const wideTable = [...doc.querySelectorAll("table")].some(
-      (t) => t.scrollWidth > root.clientWidth,
+      (t) => t.scrollWidth > root.clientWidth && rightEdge(t) >= widest - 1,
     )
     lines.push({
       text: `Scrolls sideways: content is ${root.scrollWidth}px wide in a ${root.clientWidth}px frame.`,
@@ -222,11 +255,15 @@ function stress(doc, mode, frame) {
     if (wideTable) lines.push({ text: "It's a data table, which WCAG exempts from reflow." })
   }
 
+  // Visually-hidden text (.sr-only: a 1px clipped box) is for screen readers, and an
+  // ellipsis is a deliberate truncation; neither is content cut off.
   const clipped = [...doc.body.querySelectorAll("*")].filter((el) => {
     const s = doc.defaultView.getComputedStyle(el)
+    const r = el.getBoundingClientRect()
+    if (r.width <= 1 || r.height <= 1) return false
     const hides = (o) => o === "hidden" || o === "clip"
     return (
-      (hides(s.overflowX) && el.scrollWidth > el.clientWidth + 1) ||
+      (hides(s.overflowX) && s.textOverflow !== "ellipsis" && el.scrollWidth > el.clientWidth + 1) ||
       (hides(s.overflowY) && el.scrollHeight > el.clientHeight + 1)
     )
   })
@@ -263,7 +300,9 @@ const XsbFrame = {
   mounted() {
     this.onLoad = () => this.run()
     this.el.addEventListener("load", this.onLoad)
-    if (this.el.contentDocument?.readyState === "complete") this.onLoad()
+    // A srcdoc frame's initial about:blank document is already "complete".
+    const doc = this.el.contentDocument
+    if (doc?.readyState === "complete" && doc.location.href !== "about:blank") this.onLoad()
   },
   destroyed() {
     this.el.removeEventListener("load", this.onLoad)
