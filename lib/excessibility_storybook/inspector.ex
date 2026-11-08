@@ -98,13 +98,17 @@ defmodule ExcessibilityStorybook.Inspector do
      |> select(story, nil)}
   end
 
+  @doc "Handles the story and view pickers."
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("select", %{"story" => story} = params, socket) do
     true = story in socket.assigns.stories
     {:noreply, select(socket, story, params["variation"])}
   end
 
   def handle_event("view", %{"view" => view}, socket) do
-    {:noreply, assign(socket, view: String.to_existing_atom(view))}
+    {id, _label} = Enum.find(@views, fn {id, _label} -> Atom.to_string(id) == view end)
+    {:noreply, assign(socket, view: id)}
   end
 
   # In dev, storybook recompiles a story file on every load_story/1 call (50-350ms

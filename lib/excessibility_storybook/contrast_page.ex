@@ -22,6 +22,8 @@ defmodule ExcessibilityStorybook.ContrastPage do
     for theme <- Tokens.read!(css_path), do: {String.to_atom(theme.name), theme.name}
   end
 
+  @doc "Renders the contrast matrix for the selected theme tab."
+  @spec render(map(), Path.t()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns, css_path) do
     themes = Tokens.read!(css_path)
     tab = to_string(assigns[:tab] || hd(themes).name)
@@ -38,7 +40,7 @@ defmodule ExcessibilityStorybook.ContrastPage do
         pairs:
           for(
             {fg, bg} <- Contrast.intended_pairs(theme.tokens),
-            do: {by_name[fg], by_name[bg], Contrast.assess(by_name[fg].rgb, by_name[bg].rgb)}
+            do: pair_row(Map.fetch!(by_name, fg), Map.fetch!(by_name, bg))
           ),
         fgs: fgs,
         rows: for(bg <- bgs, do: {bg, for(fg <- fgs, do: {fg, Contrast.assess(fg.rgb, bg.rgb)})}),
@@ -144,6 +146,8 @@ defmodule ExcessibilityStorybook.ContrastPage do
     <span class={if @ok, do: "xsb-pass", else: "xsb-fail"}>{if @ok, do: "passes", else: "fails"} {@label}</span>
     """
   end
+
+  defp pair_row(fg, bg), do: {fg, bg, Contrast.assess(fg.rgb, bg.rgb)}
 
   defp ratio(r), do: "#{:erlang.float_to_binary(r, decimals: 2)}:1"
 end
