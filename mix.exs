@@ -33,6 +33,7 @@ defmodule ExcessibilityStorybook.MixProject do
 
   defp deps do
     [
+      {:phoenix_html, "~> 4.0"},
       {:phoenix_live_view, "~> 1.1"},
       # the Inspector renders variations with storybook's ComponentRenderer: checked on 1.4 and 1.5
       {:phoenix_storybook, "~> 1.4"},
