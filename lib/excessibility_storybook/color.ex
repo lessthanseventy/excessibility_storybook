@@ -60,26 +60,28 @@ defmodule ExcessibilityStorybook.Color do
 
   defp parse_hsl(rest) do
     with [h, s, l] <- args(rest),
-         {:ok, h} <- hue(h),
-         {:ok, s} <- percent(s),
-         {:ok, l} <- percent(l) do
+         {:ok, h} <- none_or(h, &hue/1),
+         {:ok, s} <- none_or(s, &hsl_percent/1),
+         {:ok, l} <- none_or(l, &hsl_percent/1) do
       {:ok, hsl_to_srgb(h, clamp(s), clamp(l))}
     else
       _ -> :error
     end
   end
 
-  # "a b c)", "a, b, c, alpha)" or "a b c / alpha)" -> ["a", "b", "c"]; alpha is ignored
+  # "a b c)", "a, b, c, alpha)" or "a b c / alpha)" -> ["a", "b", "c"]; alpha is ignored.
+  # Four space-separated parts without a slash is not CSS.
   defp args(rest) do
     if String.ends_with?(rest, ")") do
-      rest
-      |> String.trim_trailing(")")
+      body = String.trim_trailing(rest, ")")
+
+      body
       |> String.split("/")
       |> hd()
       |> String.split([" ", ","], trim: true)
       |> case do
         [_, _, _] = parts -> parts
-        [a, b, c, _alpha] -> [a, b, c]
+        [a, b, c, _alpha] -> if String.contains?(body, ","), do: [a, b, c], else: :error
         _ -> :error
       end
     else
@@ -87,8 +89,9 @@ defmodule ExcessibilityStorybook.Color do
     end
   end
 
-  defp oklch_channel("none", _parse), do: {:ok, 0.0}
-  defp oklch_channel(s, parse), do: parse.(s)
+  defp oklch_channel(s, parse), do: none_or(s, parse)
+
+  defp channel("none"), do: {:ok, 0.0}
 
   defp channel(s) do
     if String.ends_with?(s, "%") do
@@ -209,5 +212,17 @@ defmodule ExcessibilityStorybook.Color do
         0.0721750 * :math.pow(b, 2.4)
 
     if y < 0.022, do: y + :math.pow(0.022 - y, 1.414), else: y
+  end
+
+  defp none_or("none", _parse), do: {:ok, 0.0}
+  defp none_or(s, parse), do: parse.(s)
+
+  # hsl() takes `50%` or, in CSS Color 4, a bare `50`
+  defp hsl_percent(s) do
+    if String.ends_with?(s, "%") do
+      percent(s)
+    else
+      with {:ok, n} <- number(s), do: {:ok, n / 100}
+    end
   end
 end

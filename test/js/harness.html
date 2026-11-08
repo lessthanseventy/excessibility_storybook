@@ -16,10 +16,28 @@ const CASES = [
     expect: (lines) => lines.every((l) => !l.problem),
   },
   {
-    name: "ellipsis truncation is not clipping",
+    name: "ellipsis truncation with the full text in title is not clipping",
+    mode: "plain",
+    html: `<p title="A very long title that will not fit" style="width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A very long title that will not fit</p>`,
+    expect: (lines) => lines.every((l) => !l.problem),
+  },
+  {
+    name: "ellipsis truncation with no full text anywhere is clipping",
     mode: "plain",
     html: `<p style="width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A very long title that will not fit</p>`,
+    expect: (lines) => lines.some((l) => l.problem === "content cut off"),
+  },
+  {
+    name: "a line-clamp is not clipping",
+    mode: "plain",
+    html: `<p style="width:100px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">one two three four five six seven eight nine ten eleven twelve thirteen fourteen</p>`,
     expect: (lines) => lines.every((l) => !l.problem),
+  },
+  {
+    name: "a flex child squeezed to nothing is clipping",
+    mode: "plain",
+    html: `<div style="display:flex;width:100px"><div style="flex:1;min-width:0;overflow:hidden;white-space:nowrap">a long label that cannot shrink</div><div style="width:100px">x</div></div>`,
+    expect: (lines) => lines.some((l) => l.problem === "content cut off"),
   },
   {
     name: "real clipping is still reported",
@@ -105,6 +123,43 @@ const CASES = [
     mode: "sounds",
     html: `<details><summary>More</summary><p>secret</p></details>`,
     expect: (lines) => !lines.some((l) => /secret/.test(l.text)) && lines.some((l) => /^More, button/.test(l.text)),
+  },
+  {
+    name: "a named closed details is announced as a group",
+    mode: "sounds",
+    html: `<details aria-label="Filters"><summary>More</summary><p>secret</p></details>`,
+    expect: (lines) => lines.some((l) => l.text === "group, Filters") && !lines.some((l) => /secret/.test(l.text)),
+  },
+  {
+    name: "radios with the same name in two forms are two tab stops",
+    mode: "focus",
+    html: `<form><label><input type="radio" name="s" value="a">A</label></form><form><label><input type="radio" name="s" value="b">B</label></form>`,
+    expect: (lines) => lines.length === 2,
+  },
+  {
+    name: "a disabled first radio does not swallow its group",
+    mode: "focus",
+    html: `<label><input type="radio" name="s" value="a" disabled>A</label><label><input type="radio" name="s" value="b">B</label>`,
+    expect: (lines) => lines.length === 1 && /B/.test(lines[0].text),
+  },
+  {
+    name: "content behind a modal dialog is not a tab stop",
+    mode: "focus",
+    html: `<button>Outside</button><dialog><button>Inside</button></dialog><script>document.querySelector("dialog").showModal()<\/script>`,
+    expect: (lines) => lines.length === 1 && /Inside/.test(lines[0].text),
+  },
+  {
+    name: "a role-less tab stop is reported",
+    mode: "focus",
+    html: `<div tabindex="0">pick me</div>`,
+    expect: (lines) => /focusable with no role/.test(lines[0]?.problem || ""),
+  },
+  {
+    name: "a carousel beside a data table does not deny the table its exemption",
+    mode: "reflow",
+    width: 320,
+    html: `<div style="overflow-x:auto;width:200px"><div style="width:900px">slides</div></div><table style="width:400px"><tr><td>x</td></tr></table>`,
+    expect: (lines) => lines.every((l) => l.problem !== "horizontal scrolling"),
   },
 ]
 

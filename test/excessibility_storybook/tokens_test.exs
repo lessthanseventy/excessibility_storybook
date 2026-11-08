@@ -33,6 +33,26 @@ defmodule ExcessibilityStorybook.TokensTest do
     assert glow == brand
   end
 
+  test "a var that several selectors set differently gives one theme per selector" do
+    css = """
+    :root { --primary: #ffffff; }
+    .dark { --primary: #000000; }
+    @theme inline { --color-primary: var(--primary); }
+    """
+
+    assert [light, dark] = Tokens.parse(css)
+    assert light.name == "@theme inline (:root)"
+    assert dark.name == "@theme inline (.dark)"
+    assert [%{name: "primary", rgb: {1.0, 1.0, 1.0}}] = light.tokens
+    assert [%{name: "primary", rgb: {0.0, 0.0, 0.0}}] = dark.tokens
+  end
+
+  test "two blocks with the same selector are one theme" do
+    css = ":root { --color-a: #ff0000; } :root { --color-b: #00ff00; }"
+
+    assert [%{name: ":root", tokens: [%{name: "a"}, %{name: "b"}]}] = Tokens.parse(css)
+  end
+
   test "tokens that can't be resolved are reported, not dropped silently" do
     [_, root] = Tokens.parse(@css)
     assert root.skipped == [{"haze", "color-mix(in oklab, red, blue)"}]

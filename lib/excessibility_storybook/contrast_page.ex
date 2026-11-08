@@ -26,7 +26,7 @@ defmodule ExcessibilityStorybook.ContrastPage do
   @spec render(map(), Path.t()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns, css_path) do
     case Tokens.read!(css_path) do
-      [] -> render_empty(assign(assigns, css_path: css_path))
+      [] -> render_empty(assign(assigns, css_path: Path.basename(css_path)))
       themes -> render_matrix(assigns, css_path, themes)
     end
   end
@@ -51,7 +51,7 @@ defmodule ExcessibilityStorybook.ContrastPage do
 
     assigns =
       assign(assigns,
-        css_path: css_path,
+        css_path: Path.basename(css_path),
         theme: theme,
         pairs:
           for(

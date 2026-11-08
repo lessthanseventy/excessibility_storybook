@@ -26,6 +26,14 @@ defmodule ExcessibilityStorybook.ColorTest do
     test "unknown syntax is an error, not a guess" do
       assert Color.parse("var(--x)") == :error
     end
+
+    test "bare hsl percentages, none, and legacy comma alpha; four bare parts are an error" do
+      assert {:ok, red} = Color.parse("hsl(0 100 50)")
+      assert_rgb(red, {1.0, 0.0, 0.0})
+      assert Color.parse("rgb(none 0 0)") == {:ok, {0.0, 0.0, 0.0}}
+      assert Color.parse("rgba(0, 0, 0, 0.5)") == {:ok, {0.0, 0.0, 0.0}}
+      assert Color.parse("rgb(0 0 0 0.5)") == :error
+    end
   end
 
   describe "wcag_ratio/2" do

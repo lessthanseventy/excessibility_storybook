@@ -95,8 +95,14 @@ function soundsLike(doc) {
     if (["SCRIPT", "STYLE", "TEMPLATE"].includes(el.tagName)) return
     if (isSubtreeInaccessible(el) || el.inert) return
     if (el.tagName === "DETAILS" && !el.open) {
+      flushText()
+      const name = computeAccessibleName(el)
+      if (name) lines.push({ text: `group, ${name}` })
       const summary = el.querySelector(":scope > summary")
-      return summary && walk(summary)
+      if (summary) walk(summary)
+      flushText()
+      if (name) lines.push({ text: "out of group" })
+      return
     }
     // visibility: hidden (a closed daisyUI modal, say) hides the element but a child
     // can opt back in with visibility: visible, so keep walking.
@@ -150,25 +156,37 @@ function soundsLike(doc) {
 const FOCUSABLE =
   'a[href], area[href], button, input, select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'
 
-// Tab lands on one radio per group: the checked one, else the first.
+// Everything outside an open modal dialog is inert without saying so; only a
+// details element's first summary is its disclosure button.
+function tabbable(el, doc) {
+  const modal = doc.querySelector("dialog:modal")
+  return (
+    el.tabIndex >= 0 &&
+    !el.matches(":disabled") &&
+    !el.closest("[inert]") &&
+    !(modal && !modal.contains(el)) &&
+    (el.tagName !== "SUMMARY" || el.parentElement?.querySelector(":scope > summary") === el) &&
+    el.getClientRects().length > 0 &&
+    doc.defaultView.getComputedStyle(el).visibility !== "hidden" &&
+    el.type !== "hidden"
+  )
+}
+
+// Tab lands on one radio per group (same form, same name): the checked one, else
+// the first that can take focus.
 function radioGroupRepresentative(el, doc) {
   if (el.type !== "radio" || !el.name) return true
-  const group = [...doc.querySelectorAll(`input[type=radio][name="${CSS.escape(el.name)}"]`)]
+  const scope = el.form || el.getRootNode()
+  const group = [...scope.querySelectorAll(`input[type=radio][name="${CSS.escape(el.name)}"]`)].filter(
+    (r) => (r.form || r.getRootNode()) === scope && tabbable(r, doc),
+  )
   const checked = group.find((r) => r.checked)
   return (checked || group[0]) === el
 }
 
 function tabOrder(doc) {
-  const win = doc.defaultView
   const els = [...doc.querySelectorAll(FOCUSABLE)].filter(
-    (el) =>
-      el.tabIndex >= 0 &&
-      !el.matches(":disabled") &&
-      !el.closest("[inert]") &&
-      el.getClientRects().length > 0 &&
-      win.getComputedStyle(el).visibility !== "hidden" &&
-      !(el.type === "hidden") &&
-      radioGroupRepresentative(el, doc),
+    (el) => tabbable(el, doc) && radioGroupRepresentative(el, doc),
   )
   const positive = els.filter((el) => el.tabIndex > 0).sort((a, b) => a.tabIndex - b.tabIndex)
   return [...positive, ...els.filter((el) => el.tabIndex === 0)]
@@ -204,7 +222,19 @@ function focusOrder(doc) {
     if (!visible) problems.push("no visible change on focus")
     if (el.tabIndex > 0) problems.push(`tabindex=${el.tabIndex} jumps the natural order`)
     if (el.closest("[aria-hidden=true]")) problems.push("focusable but hidden from screen readers")
-    if (!name && NAME_REQUIRED.has(getRole(el))) problems.push("no accessible name")
+    // A scroller is focusable by design; any other role-less tab stop is unannounced.
+    const computedRole = getRole(el)
+    const s = doc.defaultView.getComputedStyle(el)
+    const scroller =
+      /auto|scroll/.test(s.overflowX + s.overflowY) &&
+      (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)
+    if (!computedRole || computedRole === "generic") {
+      if (!scroller && !["IFRAME", "AUDIO", "VIDEO", "SUMMARY"].includes(el.tagName)) {
+        problems.push("focusable with no role")
+      }
+    } else if (!name && NAME_REQUIRED.has(computedRole)) {
+      problems.push("no accessible name")
+    }
 
     const r = el.getBoundingClientRect()
     const win = doc.defaultView
@@ -241,13 +271,22 @@ function stress(doc, mode, frame) {
   const root = doc.documentElement
   const lines = []
   // Sideways scroll only fails reflow (WCAG 1.4.10), and data tables are exempt from
-  // it; the exemption holds only when a table is what reaches the overflow edge.
+  // it; the exemption holds only when nothing but tables overflows the frame.
+  // Elements inside a scrolling or clipping ancestor don't widen the page.
   if (mode === "reflow" && root.scrollWidth > root.clientWidth + 1) {
-    const rightEdge = (el) => el.getBoundingClientRect().right + doc.defaultView.scrollX
-    const widest = Math.max(...[...doc.body.querySelectorAll("*")].map(rightEdge))
-    const wideTable = [...doc.querySelectorAll("table")].some(
-      (t) => t.scrollWidth > root.clientWidth && rightEdge(t) >= widest - 1,
-    )
+    const win = doc.defaultView
+    const rightEdge = (el) => el.getBoundingClientRect().right + win.scrollX
+    const insideClipper = (el) => {
+      for (let p = el.parentElement; p && p !== doc.body; p = p.parentElement) {
+        if (win.getComputedStyle(p).overflowX !== "visible") return true
+      }
+      return false
+    }
+    const others = [...doc.body.querySelectorAll("*")].filter((el) => !el.closest("table") && !insideClipper(el))
+    const othersEdge = Math.max(0, ...others.map(rightEdge))
+    const wideTable =
+      [...doc.querySelectorAll("table")].some((t) => t.scrollWidth > root.clientWidth) &&
+      othersEdge <= root.clientWidth + 1
     lines.push({
       text: `Scrolls sideways: content is ${root.scrollWidth}px wide in a ${root.clientWidth}px frame.`,
       problem: wideTable ? null : "horizontal scrolling",
@@ -255,16 +294,19 @@ function stress(doc, mode, frame) {
     if (wideTable) lines.push({ text: "It's a data table, which WCAG exempts from reflow." })
   }
 
-  // Visually-hidden text (.sr-only: a 1px clipped box) is for screen readers, and an
-  // ellipsis is a deliberate truncation; neither is content cut off.
+  // Visually-hidden text (.sr-only: a 1px box or a clip) is for screen readers, a
+  // line-clamp is deliberate, and an ellipsis is fine when the full text is still
+  // offered through title or aria-label. Anything else that overflows is cut off.
   const clipped = [...doc.body.querySelectorAll("*")].filter((el) => {
     const s = doc.defaultView.getComputedStyle(el)
     const r = el.getBoundingClientRect()
-    if (r.width <= 1 || r.height <= 1) return false
+    if ((r.width <= 1 && r.height <= 1) || s.clipPath !== "none" || s.clip !== "auto") return false
     const hides = (o) => o === "hidden" || o === "clip"
+    const ellipsisOk = s.textOverflow === "ellipsis" && (el.title || el.getAttribute("aria-label"))
+    const lineClamp = s.webkitLineClamp && s.webkitLineClamp !== "none"
     return (
-      (hides(s.overflowX) && s.textOverflow !== "ellipsis" && el.scrollWidth > el.clientWidth + 1) ||
-      (hides(s.overflowY) && el.scrollHeight > el.clientHeight + 1)
+      (hides(s.overflowX) && !ellipsisOk && el.scrollWidth > el.clientWidth + 1) ||
+      (hides(s.overflowY) && !lineClamp && el.scrollHeight > el.clientHeight + 1)
     )
   })
   for (const el of clipped) {

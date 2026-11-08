@@ -7,9 +7,11 @@ defmodule ExcessibilityStorybook.Tokens do
   through the custom properties of the same block first, then any declared in the
   file (the last declaration wins, whatever its selector), then its fallback. Values
   that still aren't a literal color (e.g. `color-mix(...)`) are listed in `skipped`.
+  A `var()` that several selectors set differently (`:root` and `.dark`, say) gives
+  one theme per selector, named `@theme inline (.dark)`.
 
   When two blocks share a name, the ones inside an at-rule are named with it, e.g.
-  `:root @media (prefers-color-scheme: dark)`.
+  `:root @media (prefers-color-scheme: dark)`; blocks still sharing a name are one theme.
   """
 
   alias ExcessibilityStorybook.Color
@@ -19,6 +21,7 @@ defmodule ExcessibilityStorybook.Tokens do
   @daisy_name ~r/(?:^|[;\s])name\s*:\s*["']([^"']+)["']/
   @custom_prop ~r/(--[\w-]+)\s*:\s*([^;{}]+)(?:;|$|(?=\}))/
   @var ~r/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+))?\)$/s
+  @var_ref ~r/var\(\s*(--[\w-]+)/
 
   @doc "Groups the `--color-*` declarations of `css` by block, resolving `var()` references."
   @spec parse(String.t()) :: [
@@ -28,41 +31,36 @@ defmodule ExcessibilityStorybook.Tokens do
     css = String.replace(css, ~r{/\*.*?\*/}s, "")
     props = custom_props(css)
 
-    blocks =
+    all_blocks =
       for [{start, _}, {sel_at, sel_len}, {body_at, body_len}] <-
-            Regex.scan(@block, css, return: :index),
-          body = binary_part(css, body_at, body_len),
-          decls = Regex.scan(@color_decl, body, capture: :all_but_first),
-          decls != [] do
+            Regex.scan(@block, css, return: :index) do
+        body = binary_part(css, body_at, body_len)
         selector = binary_part(css, sel_at, sel_len)
+        {selector, body, Regex.scan(@color_decl, body, capture: :all_but_first), start}
+      end
+
+    scopes =
+      for {selector, body, _, _} <- all_blocks, do: {String.trim(selector), custom_props(body)}
+
+    blocks =
+      for {selector, body, decls, start} <- all_blocks, decls != [] do
         {block_name(selector, body), body, decls, wrappers(css, start)}
       end
 
     counts = Enum.frequencies_by(blocks, &elem(&1, 0))
 
-    for {name, body, decls, wrappers} <- blocks do
-      props = Map.merge(props, custom_props(body))
+    blocks
+    |> Enum.flat_map(fn {name, body, decls, wrappers} ->
+      name =
+        if counts[name] > 1 and wrappers != [], do: Enum.join([name | wrappers], " "), else: name
 
-      {tokens, skipped} =
-        Enum.reduce(decls, {[], []}, fn [name, value], {tokens, skipped} ->
-          value = String.trim(value)
+      local = custom_props(body)
 
-          case value |> resolve(props, 10) |> Color.parse() do
-            {:ok, rgb} -> {[%{name: name, css: value, rgb: rgb} | tokens], skipped}
-            :error -> {tokens, [{name, value} | skipped]}
-          end
-        end)
-
-      %{
-        name:
-          if(counts[name] > 1 and wrappers != [],
-            do: Enum.join([name | wrappers], " "),
-            else: name
-          ),
-        tokens: Enum.reverse(tokens),
-        skipped: Enum.reverse(skipped)
-      }
-    end
+      for {suffix, scoped} <- variants(decls, local, scopes) do
+        theme(name <> suffix, decls, props |> Map.merge(scoped) |> Map.merge(local))
+      end
+    end)
+    |> merge_same_name()
   end
 
   @spec read!(Path.t()) :: [map()]
@@ -104,5 +102,56 @@ defmodule ExcessibilityStorybook.Tokens do
       [_, name] -> name
       nil -> String.trim(selector)
     end
+  end
+
+  defp theme(name, decls, props) do
+    {tokens, skipped} =
+      Enum.reduce(decls, {[], []}, fn [token, value], {tokens, skipped} ->
+        value = String.trim(value)
+
+        case value |> resolve(props, 10) |> Color.parse() do
+          {:ok, rgb} -> {[%{name: token, css: value, rgb: rgb} | tokens], skipped}
+          :error -> {tokens, [{token, value} | skipped]}
+        end
+      end)
+
+    %{name: name, tokens: Enum.reverse(tokens), skipped: Enum.reverse(skipped)}
+  end
+
+  # the selectors that set a referenced var to different values, if more than one
+  defp variants(decls, local, scopes) do
+    referenced =
+      for [_, value] <- decls,
+          [_, var] <- Regex.scan(@var_ref, value),
+          not Map.has_key?(local, var),
+          uniq: true,
+          do: var
+
+    declaring =
+      for {selector, scoped} <- scopes,
+          picked = Map.take(scoped, referenced),
+          picked != %{},
+          do: {selector, picked}
+
+    case Enum.uniq_by(declaring, &elem(&1, 1)) do
+      [_ | [_ | _]] = many -> for {selector, scoped} <- many, do: {" (#{selector})", scoped}
+      _ -> [{"", %{}}]
+    end
+  end
+
+  defp merge_same_name(themes) do
+    themes
+    |> Enum.reduce([], fn theme, acc ->
+      case Enum.find_index(acc, &(&1.name == theme.name)) do
+        nil ->
+          [theme | acc]
+
+        i ->
+          List.update_at(acc, i, fn seen ->
+            %{seen | tokens: seen.tokens ++ theme.tokens, skipped: seen.skipped ++ theme.skipped}
+          end)
+      end
+    end)
+    |> Enum.reverse()
   end
 end
