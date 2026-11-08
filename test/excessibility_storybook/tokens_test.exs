@@ -28,8 +28,9 @@ defmodule ExcessibilityStorybook.TokensTest do
 
     assert root.name == ":root"
 
-    assert [%{name: "brand", rgb: {1.0, 0.0, 0.0}}, %{name: "glow", rgb: {1.0, 0.0, 0.0}}] =
-             root.tokens
+    assert [%{name: "brand", rgb: brand}, %{name: "glow", rgb: glow}] = root.tokens
+    assert brand == {1.0, 0.0, 0.0}
+    assert glow == brand
   end
 
   test "tokens that can't be resolved are reported, not dropped silently" do
@@ -56,5 +57,52 @@ defmodule ExcessibilityStorybook.TokensTest do
            ] = fc.tokens
 
     assert fc.skipped == [{"loop", "var(--color-loop)"}]
+  end
+
+  test "the last declaration in a block needs no semicolon" do
+    assert [%{name: "[data-theme=x]", tokens: [%{name: "a"}]}] =
+             Tokens.parse("[data-theme=x]{ --color-a: #fff }")
+
+    css = "[data-theme=x]{ --p: #000; --color-a: var(--p) }"
+    assert [%{tokens: [%{name: "a", rgb: black}]}] = Tokens.parse(css)
+    assert black == {0.0, 0.0, 0.0}
+  end
+
+  test "an at-rule wrapping a repeated selector gets its own name" do
+    css = """
+    :root { --color-a: #fff; }
+    @media (prefers-color-scheme: dark) { :root { --color-a: #000; } }
+    """
+
+    assert [light, dark] = Tokens.parse(css)
+    assert light.name == ":root"
+    assert dark.name == ":root @media (prefers-color-scheme: dark)"
+  end
+
+  test "unrepeated selectors keep their plain name inside an at-rule" do
+    css = "@media print { :root { --color-a: #fff; } }"
+    assert [%{name: ":root"}] = Tokens.parse(css)
+  end
+
+  test "only a bare name: declaration names a theme" do
+    css = """
+    .a { --font-name: "Inter"; --color-name: "x"; --color-a: #fff; }
+    .b { name: 'Brand'; --color-a: #fff; }
+    """
+
+    assert [%{name: ".a"}, %{name: "Brand"}] = Tokens.parse(css)
+  end
+
+  test "var() prefers the declaring block over a later block" do
+    css = """
+    [data-theme=light] { --x: #ffffff; --color-a: var(--x); }
+    [data-theme=dark] { --x: #000000; --color-a: var(--x); }
+    """
+
+    assert [light, dark] = Tokens.parse(css)
+    assert [%{rgb: white}] = light.tokens
+    assert [%{rgb: black}] = dark.tokens
+    assert white == {1.0, 1.0, 1.0}
+    assert black == {0.0, 0.0, 0.0}
   end
 end
